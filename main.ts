@@ -1,134 +1,261 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Modal, Notice, Plugin } from "obsidian";
+import CreateLocation from "./ui/CreateLocation.svelte";
+import { DEFAULT_SETTINGS, type NodeQuestPluginSettings, NodeQuestSettingTab } from "./settings";
+import { slugify } from "./utils/slug";
+import { tsId } from "./utils/ids";
 
-// Remember to rename these classes and interfaces!
+export default class NodeQuestPlugin extends Plugin {
+  settings: NodeQuestPluginSettings;
 
-interface MyPluginSettings {
-	mySetting: string;
+  async onload() {
+    await this.loadSettings();
+    this.addSettingTab(new NodeQuestSettingTab(this.app, this));
+
+    this.addCommand({
+      id: "create-location",
+      name: "World: Create Location",
+      callback: () => this.openLocationModal(),
+    });
+
+    this.addCommand({
+      id: "create-sublocation",
+      name: "World: Create Sub-location",
+      callback: () => this.openLocationModal({ isSub: true }),
+    });
+
+    this.addCommand({
+      id: "create-npc",
+      name: "World: Create NPC",
+      callback: () => this.openNPCModal(),
+    });
+
+    this.addCommand({
+      id: "create-faction",
+      name: "World: Create Faction",
+      callback: () => this.openFactionModal(),
+    });
+  }
+
+  onunload() {}
+
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings() { await this.saveData(this.settings); }
+
+  // ---- Modals ----
+  openLocationModal(opts?: { isSub?: boolean }) {
+    new SvelteModal(this.app, (container) => {
+      const comp = new CreateLocation({
+        target: container,
+        props: {
+          defaultWorld: this.settings.defaultWorld,
+          isSub: !!opts?.isSub,
+          onSubmit: (data: {
+            name: string;
+            world: string;
+            parentId?: string | null;
+            tier: number;
+            aliases?: string[];
+          }) => this.createLocation(data),
+        },
+      });
+      return () => comp.$destroy();
+    }).open();
+  }
+
+  openNPCModal() {
+    new SvelteModal(this.app, (container) => {
+      const comp = new CreateNPC({
+        target: container,
+        props: {
+          defaultWorld: this.settings.defaultWorld,
+          onSubmit: (data: {
+            name: string;
+            world: string;
+            locationId?: string | null;
+            factionIds?: string[];
+            aliases?: string[];
+          }) => this.createNPC(data),
+        },
+      });
+      return () => comp.$destroy();
+    }).open();
+  }
+
+  openFactionModal() {
+    new SvelteModal(this.app, (container) => {
+      const comp = new CreateFaction({
+        target: container,
+        props: {
+          defaultWorld: this.settings.defaultWorld,
+          onSubmit: (data: {
+            name: string;
+            world: string;
+            locationId?: string | null;
+            aliases?: string[];
+          }) => this.createFaction(data),
+        },
+      });
+      return () => comp.$destroy();
+    }).open();
+  }
+
+  // ---- File creation helpers ----
+  async ensureScaffold(world: string) {
+    const base = this.settings.basePath;
+    const dirs = [
+      `${base}/${world}`,
+      `${base}/${world}/Locations`,
+      `${base}/${world}/NPCs`,
+      `${base}/${world}/Factions`,
+    ];
+    for (const d of dirs) {
+      if (!await this.app.vault.adapter.exists(d)) {
+        await this.app.vault.createFolder(d);
+      }
+    }
+  }
+
+  private pathFor(world: string, kind: "location"|"npc"|"faction", slug: string) {
+    const base = this.settings.basePath;
+    const folder = kind === "location" ? "Locations" : kind === "npc" ? "NPCs" : "Factions";
+    return `${base}/${world}/${folder}/${slug}.md`;
+  }
+
+  async createLocation({ name, world, parentId = null, tier, aliases = [] }: any) {
+    const slug = slugify(name);
+    const id = tsId("loc", slug);
+    await this.ensureScaffold(world);
+
+    const fm = [
+      "---",
+      `id: ${id}`,
+      `type: location`,
+      `title: "${name}"`,
+      `parent: ${parentId ? `"${parentId}"` : "null"}`,
+      `tier: ${tier ?? 1}`,
+      `tags: ["ttrpg/location", "${world}"]`,
+      `coords: { x: null, y: null, map: null }`,
+      `children: []`,
+      `world: "${world}"`,
+      `aliases: [${aliases.map(a => `"${a}"`).join(", ")}]`,
+      "---",
+      "",
+      "## Summary",
+      "",
+      "## Details",
+      "",
+      "## Sub-locations",
+      "",
+    ].join("\n");
+
+    const filePath = this.pathFor(world, "location", slug);
+    const file = await this.app.vault.create(filePath, fm);
+    new Notice(`Created location: ${name}`);
+
+    // optional: append child id to parent note
+    if (parentId) await this.tryAppendChildToParent(parentId, id);
+
+    await this.app.workspace.getLeaf(true).openFile(file);
+  }
+
+  async createNPC({ name, world, locationId = null, factionIds = [], aliases = [] }: any) {
+    const slug = slugify(name);
+    const id = tsId("npc", slug);
+    await this.ensureScaffold(world);
+
+    const fm = [
+      "---",
+      `id: ${id}`,
+      `type: npc`,
+      `title: "${name}"`,
+      `world: "${world}"`,
+      `location_id: ${locationId ? `"${locationId}"` : "null"}`,
+      `faction_ids: [${(factionIds||[]).map((f: string) => `"${f}"`).join(", ")}]`,
+      `tags: ["ttrpg/npc", "${world}"]`,
+      `aliases: [${aliases.map((a: string) => `"${a}"`).join(", ")}]`,
+      "---",
+      "",
+      "## Description",
+      "",
+      "## Hooks",
+      "",
+      "## Connections",
+      "",
+    ].join("\n");
+
+    const filePath = this.pathFor(world, "npc", slug);
+    const file = await this.app.vault.create(filePath, fm);
+    new Notice(`Created NPC: ${name}`);
+    await this.app.workspace.getLeaf(true).openFile(file);
+  }
+
+  async createFaction({ name, world, locationId = null, aliases = [] }: any) {
+    const slug = slugify(name);
+    const id = tsId("fac", slug);
+    await this.ensureScaffold(world);
+
+    const fm = [
+      "---",
+      `id: ${id}`,
+      `type: faction`,
+      `title: "${name}"`,
+      `world: "${world}"`,
+      `hq_location_id: ${locationId ? `"${locationId}"` : "null"}`,
+      `tags: ["ttrpg/faction", "${world}"]`,
+      `aliases: [${aliases.map((a: string) => `"${a}"`).join(", ")}]`,
+      "---",
+      "",
+      "## Mandate",
+      "",
+      "## Assets",
+      "",
+      "## NPCs",
+      "",
+    ].join("\n");
+
+    const filePath = this.pathFor(world, "faction", slug);
+    const file = await this.app.vault.create(filePath, fm);
+    new Notice(`Created faction: ${name}`);
+    await this.app.workspace.getLeaf(true).openFile(file);
+  }
+
+  private async tryAppendChildToParent(parentId: string, childId: string) {
+    // naive approach: search for file with frontmatter id == parentId
+    const files = this.app.vault.getMarkdownFiles();
+    for (const f of files) {
+      const cache = this.app.metadataCache.getFileCache(f);
+      // @ts-ignore
+      const fm = cache?.frontmatter;
+      if (fm?.id === parentId && fm?.type === "location") {
+        const content = await this.app.vault.read(f);
+        // update children array in frontmatter (simple regex replace)
+        const updated = content.replace(
+          /children:\s*\[(.*?)\]/s,
+          (m, inner) => {
+            const list = inner.trim().length ? inner.split(",").map(s => s.trim()) : [];
+            if (!list.find(x => x.replace(/["']/g,"") === childId)) list.push(`"${childId}"`);
+            return `children: [${list.join(", ")}]`;
+          }
+        );
+        await this.app.vault.modify(f, updated);
+        new Notice("Parent updated with child link");
+        break;
+      }
+    }
+  }
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+class SvelteModal extends Modal {
+  private unmount?: () => void;
+  private mountFn: (container: HTMLElement) => (() => void);
+  constructor(app: App, mountFn: (container: HTMLElement) => (() => void)) {
+    super(app);
+    this.mountFn = mountFn;
+  }
+  onOpen() { this.unmount = this.mountFn(this.contentEl); }
+  onClose() { this.contentEl.empty(); this.unmount?.(); }
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
-
-	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
-
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
-}

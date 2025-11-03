@@ -1,4 +1,5 @@
 import { App, Modal, Notice, Plugin } from "obsidian";
+import { mount, unmount } from "svelte";
 import CreateLocation from "./ui/CreateLocation.svelte";
 import { DEFAULT_SETTINGS, type NodeQuestPluginSettings, NodeQuestSettingTab } from "./settings";
 import { slugify } from "./utils/slug";
@@ -47,7 +48,7 @@ export default class NodeQuestPlugin extends Plugin {
   // ---- Modals ----
   openLocationModal(opts?: { isSub?: boolean }) {
     new SvelteModal(this.app, (container) => {
-      const comp = new CreateLocation({
+      const component = mount(CreateLocation, {
         target: container,
         props: {
           defaultWorld: this.settings.defaultWorld,
@@ -61,46 +62,13 @@ export default class NodeQuestPlugin extends Plugin {
           }) => this.createLocation(data),
         },
       });
-      return () => comp.$destroy();
+      return () => { void unmount(component); };
     }).open();
   }
 
-  openNPCModal() {
-    new SvelteModal(this.app, (container) => {
-      const comp = new CreateNPC({
-        target: container,
-        props: {
-          defaultWorld: this.settings.defaultWorld,
-          onSubmit: (data: {
-            name: string;
-            world: string;
-            locationId?: string | null;
-            factionIds?: string[];
-            aliases?: string[];
-          }) => this.createNPC(data),
-        },
-      });
-      return () => comp.$destroy();
-    }).open();
-  }
+  openNPCModal() { new Notice("Create NPC modal is not available yet."); }
 
-  openFactionModal() {
-    new SvelteModal(this.app, (container) => {
-      const comp = new CreateFaction({
-        target: container,
-        props: {
-          defaultWorld: this.settings.defaultWorld,
-          onSubmit: (data: {
-            name: string;
-            world: string;
-            locationId?: string | null;
-            aliases?: string[];
-          }) => this.createFaction(data),
-        },
-      });
-      return () => comp.$destroy();
-    }).open();
-  }
+  openFactionModal() { new Notice("Create faction modal is not available yet."); }
 
   // ---- File creation helpers ----
   async ensureScaffold(world: string) {
@@ -124,7 +92,19 @@ export default class NodeQuestPlugin extends Plugin {
     return `${base}/${world}/${folder}/${slug}.md`;
   }
 
-  async createLocation({ name, world, parentId = null, tier, aliases = [] }: any) {
+  async createLocation({
+    name,
+    world,
+    parentId = null,
+    tier,
+    aliases = [],
+  }: {
+    name: string;
+    world: string;
+    parentId?: string | null;
+    tier?: number;
+    aliases?: string[];
+  }) {
     const slug = slugify(name);
     const id = tsId("loc", slug);
     await this.ensureScaffold(world);
@@ -140,7 +120,7 @@ export default class NodeQuestPlugin extends Plugin {
       `coords: { x: null, y: null, map: null }`,
       `children: []`,
       `world: "${world}"`,
-      `aliases: [${aliases.map(a => `"${a}"`).join(", ")}]`,
+      `aliases: [${aliases.map((alias) => `"${alias}"`).join(", ")}]`,
       "---",
       "",
       "## Summary",
@@ -161,7 +141,19 @@ export default class NodeQuestPlugin extends Plugin {
     await this.app.workspace.getLeaf(true).openFile(file);
   }
 
-  async createNPC({ name, world, locationId = null, factionIds = [], aliases = [] }: any) {
+  async createNPC({
+    name,
+    world,
+    locationId = null,
+    factionIds = [],
+    aliases = [],
+  }: {
+    name: string;
+    world: string;
+    locationId?: string | null;
+    factionIds?: string[];
+    aliases?: string[];
+  }) {
     const slug = slugify(name);
     const id = tsId("npc", slug);
     await this.ensureScaffold(world);
@@ -173,9 +165,9 @@ export default class NodeQuestPlugin extends Plugin {
       `title: "${name}"`,
       `world: "${world}"`,
       `location_id: ${locationId ? `"${locationId}"` : "null"}`,
-      `faction_ids: [${(factionIds||[]).map((f: string) => `"${f}"`).join(", ")}]`,
+      `faction_ids: [${(factionIds || []).map((factionId) => `"${factionId}"`).join(", ")}]`,
       `tags: ["ttrpg/npc", "${world}"]`,
-      `aliases: [${aliases.map((a: string) => `"${a}"`).join(", ")}]`,
+      `aliases: [${aliases.map((alias) => `"${alias}"`).join(", ")}]`,
       "---",
       "",
       "## Description",
@@ -192,7 +184,17 @@ export default class NodeQuestPlugin extends Plugin {
     await this.app.workspace.getLeaf(true).openFile(file);
   }
 
-  async createFaction({ name, world, locationId = null, aliases = [] }: any) {
+  async createFaction({
+    name,
+    world,
+    locationId = null,
+    aliases = [],
+  }: {
+    name: string;
+    world: string;
+    locationId?: string | null;
+    aliases?: string[];
+  }) {
     const slug = slugify(name);
     const id = tsId("fac", slug);
     await this.ensureScaffold(world);
@@ -205,7 +207,7 @@ export default class NodeQuestPlugin extends Plugin {
       `world: "${world}"`,
       `hq_location_id: ${locationId ? `"${locationId}"` : "null"}`,
       `tags: ["ttrpg/faction", "${world}"]`,
-      `aliases: [${aliases.map((a: string) => `"${a}"`).join(", ")}]`,
+      `aliases: [${aliases.map((alias) => `"${alias}"`).join(", ")}]`,
       "---",
       "",
       "## Mandate",
@@ -235,8 +237,8 @@ export default class NodeQuestPlugin extends Plugin {
         const updated = content.replace(
           /children:\s*\[(.*?)\]/s,
           (m, inner) => {
-            const list = inner.trim().length ? inner.split(",").map(s => s.trim()) : [];
-            if (!list.find(x => x.replace(/["']/g,"") === childId)) list.push(`"${childId}"`);
+            const list = inner.trim().length ? inner.split(",").map((segment: string) => segment.trim()) : [];
+            if (!list.find((item: string) => item.replace(/["']/g,"") === childId)) list.push(`"${childId}"`);
             return `children: [${list.join(", ")}]`;
           }
         );
@@ -258,4 +260,3 @@ class SvelteModal extends Modal {
   onOpen() { this.unmount = this.mountFn(this.contentEl); }
   onClose() { this.contentEl.empty(); this.unmount?.(); }
 }
-

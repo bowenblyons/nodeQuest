@@ -28,32 +28,32 @@
 
 <div class="p-4">
   <h2>Create {isSub ? "Sub-location" : "Location"}</h2>
-  <div class="field">
-    <label>Name</label>
+  <label class="field">
+    <span>Name</span>
     <input bind:value={name} placeholder="E.g., Westgate" />
-  </div>
-  <div class="field">
-    <label>World</label>
+  </label>
+  <label class="field">
+    <span>World</span>
     <input bind:value={world} />
-  </div>
+  </label>
 
   <div class="row">
-    <div class="field">
-      <label>Tier</label>
+    <label class="field">
+      <span>Tier</span>
       <input type="number" bind:value={tier} min="0" />
-    </div>
+    </label>
     {#if isSub}
-      <div class="field">
-        <label>Parent ID</label>
+      <label class="field">
+        <span>Parent ID</span>
         <input bind:value={parentId} placeholder="loc_parent_..." />
-      </div>
+      </label>
     {/if}
   </div>
 
-  <div class="field">
-    <label>Aliases (comma-separated)</label>
+  <label class="field">
+    <span>Aliases (comma-separated)</span>
     <input bind:value={aliasesRaw} placeholder="Old Gate, West Gate" />
-  </div>
+  </label>
 
   <div class="actions">
     <button on:click={submit} disabled={!name}>Create</button>
@@ -61,7 +61,7 @@
 </div>
 
 <style>
-  .field { margin: 8px 0; display: flex; flex-direction: column; }
+  .field { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
   .row { display: flex; gap: 12px; }
   .actions { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
   input { padding: 6px 8px; }
